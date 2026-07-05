@@ -38,7 +38,10 @@ of the same `Agent` contract, so the cell only ever sees the Axon contract — n
 framework (Arkwen Invariant 1):
 
 - `axon.adapters.MinimalAgent` — a ~40-line raw tool-use loop (reference, zero deps).
-- `axon.adapters.LangGraphAgent` — `create_react_agent` over cell-bound tools *(scaffold)*.
+- `axon.adapters.LangGraphAgent` — `create_react_agent` over cell-bound tools
+  **(implemented + offline-tested)**: each cell tool becomes a `StructuredTool` that
+  routes to `cell.invoke_tool`, so the model can only call announced tools and the
+  cell executes them under policy.
 - `axon.adapters.CrewAIAgent` — a single-worker CrewAI Crew *(scaffold; multi-agent later)*.
 
 ```python
@@ -79,14 +82,14 @@ Line-delimited JSON over stdio (MCP-like). The cell drives the session:
 
 ## Status
 
-**Scaffold (v0.0.1).** Core contract + cell SDK + a working `MinimalAgent` reference
-loop are defined; the LangGraph and CrewAI adapters are stubs with the exact binding
-they need. Next: a concrete provider example, one runnable adapter end-to-end against a
-real cell, and the confinement handshake on the Arkwen side.
+**v0.0.1.** Core contract + cell SDK + a working `MinimalAgent` reference loop, and a
+**real, offline-tested `LangGraphAgent`** (tool calls provably routed through the cell —
+see `tests/test_langgraph_agent.py`). The CrewAI adapter is a stub with the exact binding
+it needs. Next: a concrete provider example and running against a real Arkwen cell.
 
 ## Roadmap
 
-- **R1** — LangGraph adapter (bind cell tools → LangChain tools, `create_react_agent`).
+- **R1** — LangGraph adapter ✅ *(done; migrate `create_react_agent` → `langchain.agents.create_agent` before LangGraph V2)*.
 - **R2** — CrewAI adapter (bind cell tools → `BaseTool`, single-worker Crew).
 - **R3** — Provider examples (Anthropic / OpenAI-compatible) behind `LLMProvider`.
 - **R4** — Skill loader (Arkwen Toolkits → injected `Skill`s).

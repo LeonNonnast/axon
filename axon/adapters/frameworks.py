@@ -1,32 +1,99 @@
 """LangGraph and CrewAI adapters — the same Axon contract, richer engines.
 
-Both bind the CELL-PROVIDED tools into the framework's own tool abstraction, so
-the framework's agent can only ever call tools the cell announced, and every call
-is executed by the cell (``Cell.invoke_tool``) under policy — never in-process.
-These are scaffolds; implement against the installed framework (optional extras in
-pyproject: ``axon[langgraph]`` / ``axon[crewai]``)."""
+Both bind the CELL-PROVIDED tools into the framework's own tool abstraction, so the
+framework's agent can only ever call tools the cell announced, and every call is
+executed by the cell (``Cell.invoke_tool``) under policy — never in-process.
+
+``LangGraphAgent`` is implemented; ``CrewAIAgent`` is a scaffold. Framework imports
+are lazy (inside ``run``) so ``import axon.adapters`` needs no optional deps."""
 from __future__ import annotations
 
-from ..core import Agent, RunResult
+import uuid
+from typing import Any, Optional
+
+from ..core import Agent, RunResult, Tool
+
+_JSON_TO_PY = {
+    "string": str,
+    "integer": int,
+    "number": float,
+    "boolean": bool,
+    "object": dict,
+    "array": list,
+}
+
+
+def _args_model(tool: Tool):
+    """Build a pydantic model for a tool's args from its JSON input_schema, so a
+    LangChain StructuredTool can validate the model's tool-call arguments."""
+    from pydantic import create_model
+
+    schema = tool.input_schema or {}
+    props = schema.get("properties", {})
+    required = set(schema.get("required", []))
+    fields: dict[str, Any] = {}
+    for name, spec in props.items():
+        py = _JSON_TO_PY.get((spec or {}).get("type"), Any)
+        if name in required:
+            fields[name] = (py, ...)
+        else:
+            fields[name] = (Optional[py], None)
+    return create_model(f"{tool.name}_Args", **fields)
 
 
 class LangGraphAgent(Agent):
-    """Bind ``spec.tools`` -> LangChain tools whose func calls
-    ``self.cell.invoke_tool``, then drive
-    ``langgraph.prebuilt.create_react_agent(provider, tools)``. ``run()`` streams the
-    graph and mirrors messages/tool-calls via ``self.cell.emit``."""
+    """Drives ``langgraph.prebuilt.create_react_agent`` over cell-bound tools.
+
+    Adapter contract: ``provider`` must be a LangChain ``BaseChatModel`` (LangGraph
+    is LangChain-native). Each cell tool becomes a ``StructuredTool`` whose function
+    routes to ``self.cell.invoke_tool`` — so the model can only call announced tools
+    and the cell executes them under policy. Messages/tool-calls are mirrored to the
+    cell via ``emit`` for Arkwen's event stream."""
+
+    def _bind_tool(self, tool: Tool):
+        from langchain_core.tools import StructuredTool
+
+        cell = self.cell
+
+        def _run(**kwargs):
+            call_id = "tc_" + uuid.uuid4().hex[:8]
+            cell.emit({"kind": "tool_call", "name": tool.name, "args": kwargs})
+            # Executed by the CELL under policy — never in this process.
+            res = cell.invoke_tool(call_id, tool.name, kwargs)
+            if not res.get("ok", True):
+                return f"error: {res.get('error', 'tool failed')}"
+            return res.get("result", "")
+
+        return StructuredTool.from_function(
+            func=_run,
+            name=tool.name,
+            description=tool.description,
+            args_schema=_args_model(tool),
+        )
 
     def run(self) -> RunResult:
-        raise NotImplementedError(
-            "LangGraph adapter (roadmap R1): install `axon[langgraph]`, bind cell "
-            "tools -> LangChain tools that call cell.invoke_tool, run create_react_agent."
-        )
+        from langchain_core.messages import HumanMessage
+        from langgraph.prebuilt import create_react_agent
+
+        lc_tools = [self._bind_tool(t) for t in self.spec.tools]
+        # NOTE: on LangGraph V1 this is deprecated in favour of
+        # `from langchain.agents import create_agent`; migrate before V2 (roadmap).
+        agent = create_react_agent(self.provider, lc_tools, prompt=self.system_prompt())
+
+        state = agent.invoke({"messages": [HumanMessage(content=self.spec.prompt)]})
+        messages = state.get("messages", [])
+        final = messages[-1] if messages else None
+        output = (getattr(final, "content", "") or "") if final is not None else ""
+
+        self.cell.emit({"kind": "message", "text": output})
+        self.cell.finish("completed", output)
+        return RunResult("completed", output, len(messages))
 
 
 class CrewAIAgent(Agent):
     """Bind ``spec.tools`` -> crewai ``BaseTool`` subclasses whose ``_run`` calls
     ``self.cell.invoke_tool``; wrap in a single-member Crew. Multi-agent crews are a
-    future capability — the confined single worker is the first target."""
+    future capability — the confined single worker is the first target. (Scaffold.)"""
 
     def run(self) -> RunResult:
         raise NotImplementedError(
