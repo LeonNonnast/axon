@@ -80,12 +80,28 @@ Line-delimited JSON over stdio (MCP-like). The cell drives the session:
 -> {"type":"finish","status":"completed","output":..}
 ```
 
+## Dynamic workflows — the "elio loop" as a tool
+
+An agent can decompose a large task into a **multi-stage workflow** and run it via the
+`run_workflow` cell tool (`axon/workflow.py`): stages run sequentially, agent nodes
+within a stage run in parallel, each stage may declare a **quality gate** that must
+PASS to proceed (fail-closed), every node is a confined sub-axon, results are written
+**through the cell**, and progress is emitted as events. This is the axon-native
+realization of the ELIO outer-loop pattern; the TS ELIO engine can later back the same
+tool contract. Verified end-to-end against Ollama (`examples/run_elio_workflow.py`) — a
+design→implement→test run produced real, gated code.
+
+Crucially: `run_workflow` is a **trusted** tool (run by the cell, not the agent). The
+agent only *requests* a workflow — it never executes scripts or reaches a terminal;
+any such capability would itself be a policy-gated cell tool in a confined sub-cell.
+
 ## Status
 
-**v0.0.1.** Core contract + cell SDK + a working `MinimalAgent` reference loop, and a
-**real, offline-tested `LangGraphAgent`** (tool calls provably routed through the cell —
-see `tests/test_langgraph_agent.py`). The CrewAI adapter is a stub with the exact binding
-it needs. Next: a concrete provider example and running against a real Arkwen cell.
+**v0.0.1.** Core contract + cell SDK + a working `MinimalAgent` reference loop, a
+**real, offline-tested `LangGraphAgent`** (tool calls provably routed through the cell),
+a cooperative reference `LocalCell` (policy + redaction), and a **working dynamic
+workflow engine** (the elio loop) — all verified against Ollama. The CrewAI adapter is a
+stub. Next: running against a real Arkwen cell (the Go tool-broker + confinement).
 
 ## Roadmap
 

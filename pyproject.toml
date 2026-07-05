@@ -4,7 +4,7 @@ version = "0.0.1"
 description = "The agent (neuron) region of the Brain — a framework-agnostic worker that runs inside an Arkwen cell and acts only through cell-provided tools."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["pyyaml>=6"]
 
 [project.optional-dependencies]
 langgraph = ["langgraph>=0.2", "langchain-core>=0.3"]
