@@ -57,8 +57,9 @@ class LangGraphAgent(Agent):
 
         def _run(**kwargs):
             call_id = "tc_" + uuid.uuid4().hex[:8]
-            cell.emit({"kind": "tool_call", "name": tool.name, "args": kwargs})
-            # Executed by the CELL under policy — never in this process.
+            # Executed by the CELL under policy — never in this process. The cell is
+            # the sole logger of the call (invoke_tool records it), so we don't emit
+            # a duplicate tool_call event here.
             res = cell.invoke_tool(call_id, tool.name, kwargs)
             if not res.get("ok", True):
                 return f"error: {res.get('error', 'tool failed')}"

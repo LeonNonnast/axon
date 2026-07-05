@@ -83,11 +83,11 @@ def test_langgraph_agent_routes_tool_through_cell():
     )
     result = agent.run()
 
-    # the agent asked the CELL to run the tool (it did not run it itself)
+    # the agent asked the CELL to run the tool (it did not run it itself) — the cell
+    # is the sole authority that records the call (via invoke_tool)
     assert cell.calls == [("write_artifact", {"path": "hello.txt", "data": "hi"})]
-    # a tool_call event was emitted for observability
-    assert any(e.get("kind") == "tool_call" and e["name"] == "write_artifact" for e in cell.emits)
-    # the run finished through the cell
+    # the run finished through the cell, with the final message emitted
+    assert any(e.get("kind") == "message" for e in cell.emits)
     assert cell.finished is not None and cell.finished[0] == "completed"
     assert result.status == "completed"
     assert "hello.txt" in result.output
