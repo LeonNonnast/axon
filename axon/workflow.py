@@ -155,15 +155,44 @@ def _write_report(parent_cell, transcript, status) -> str:
 
 RUN_WORKFLOW = Tool(
     "run_workflow",
-    ("Run a multi-stage agent workflow (the elio loop) to accomplish a larger task. "
-     "Stages run sequentially and see prior results; agents within a stage run in "
-     "parallel; each stage may declare a quality gate that must PASS to proceed. "
-     "Provide a YAML spec with: goal, and stages: a list of {name, agents: [{name, "
-     "prompt}], gate?: '<pass criteria>'}. Results are written via the cell and "
+    ("Run a multi-stage agent workflow (the elio loop) to accomplish a larger build "
+     "task. Stages run sequentially and see prior results; agents within a stage run "
+     "in parallel; each stage may declare a quality gate that must PASS to proceed. "
+     "Decompose the task into ordered stages design -> implement -> test -> commit; "
+     "give each stage a name and a list of agents ({name, prompt}); implement/commit "
+     "agents write files via write_artifact. Results are written via the cell and "
      "progress is observable in the event stream."),
+    # STRUCTURED args (goal + stages), not a YAML blob: small models emit nested JSON
+    # tool arguments reliably but choke on a large multi-line string argument.
     {"type": "object",
-     "properties": {"spec": {"type": "string", "description": "YAML workflow spec (goal + stages)"}},
-     "required": ["spec"]},
+     "properties": {
+         "goal": {"type": "string", "description": "one-line goal of the workflow"},
+         "stages": {
+             "type": "array",
+             "description": "ordered stages design -> implement -> test -> commit",
+             "items": {
+                 "type": "object",
+                 "properties": {
+                     "name": {"type": "string", "description": "stage name, e.g. design"},
+                     "agents": {
+                         "type": "array",
+                         "description": "agents in this stage; each does one focused task",
+                         "items": {
+                             "type": "object",
+                             "properties": {
+                                 "name": {"type": "string"},
+                                 "prompt": {"type": "string", "description": "the agent's focused instruction"},
+                             },
+                             "required": ["name", "prompt"],
+                         },
+                     },
+                     "gate": {"type": "string", "description": "optional PASS/FAIL criteria for the stage"},
+                 },
+                 "required": ["name", "agents"],
+             },
+         },
+     },
+     "required": ["goal", "stages"]},
 )
 
 
@@ -171,9 +200,33 @@ def register_workflow_tool(cell, provider_factory) -> None:
     """Register run_workflow on the cell, wired to a model provider factory.
 
     This is a TRUSTED tool: the agent only *requests* a workflow; the cell (harness)
-    runs the sub-agents. The agent never executes scripts or touches a terminal."""
+    runs the sub-agents. The agent never executes scripts or touches a terminal.
 
-    def _impl(cell, spec):
+    Accepts either the structured form (goal + stages, what the model emits) or a
+    single YAML/dict ``spec`` (back-compat / direct callers). parse_spec normalizes
+    both."""
+
+    def _impl(cell, goal=None, stages=None, spec=None):
+        if spec is None:
+            spec = {"goal": goal or "", "stages": _coerce_stages(stages)}
         return run_workflow(cell, spec, provider_factory)
 
     cell.register(RUN_WORKFLOW, _impl)
+
+
+def _coerce_stages(stages):
+    """Normalize pydantic/model instances (as StructuredTool may hand back) or plain
+    dicts into the list-of-dict shape parse_spec expects."""
+    out = []
+    for s in stages or []:
+        if hasattr(s, "model_dump"):
+            s = s.model_dump()
+        elif not isinstance(s, dict):
+            s = dict(s)
+        agents = []
+        for a in s.get("agents", []) or []:
+            if hasattr(a, "model_dump"):
+                a = a.model_dump()
+            agents.append(a)
+        out.append({"name": s.get("name", "stage"), "agents": agents, "gate": s.get("gate")})
+    return out

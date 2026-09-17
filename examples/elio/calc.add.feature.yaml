@@ -1,0 +1,102 @@
+apiVersion: elio/v1
+kind: Feature
+metadata:
+  id: calc.add
+  version: 0.1.0
+  owner: axon
+  lifecycle: draft
+feature:
+  autonomy: guided
+  artifact:
+    kind: python-module
+    evalGate: test_passes
+  io:
+    input:
+      type: object
+      properties:
+        goal:
+          type: string
+    output:
+      type: object
+  graph:
+    state:
+      design__designer__output: null
+      implement__coder__output: null
+      test__tester__output: null
+      commit__committer__output: null
+    steps:
+    - id: design__designer
+      type: agent
+      with:
+        prompt: In 2-3 sentences, specify a Python function add(a,b) that returns a+b, with a docstring.
+          Do not write code yet.
+        system: 'You are ''designer'' in the ''design'' stage of: Produce a tiny Python module calc.py
+          with add(a,b) and a smoke test.'
+        maxTurns: 1
+      outputs:
+        output: state.design__designer__output
+    - id: implement__coder
+      type: agent
+      with:
+        prompt: Write the file calc.py with the add(a,b) function and a docstring, using the write_artifact
+          tool. Then confirm in one sentence.
+        system: 'You are ''coder'' in the ''implement'' stage of: Produce a tiny Python module calc.py
+          with add(a,b) and a smoke test.'
+        maxTurns: 1
+      outputs:
+        output: state.implement__coder__output
+    - id: implement__gate
+      type: validate
+      with:
+        value: '{{state.implement__coder__output}}'
+        minLength: 1
+        criteria: the stage output describes an add(a, b) function that returns a + b
+    - id: test__tester
+      type: agent
+      with:
+        prompt: State one concrete assertion that verifies add(2,3)==5. One line, e.g. `assert add(2,
+          3) == 5`.
+        system: 'You are ''tester'' in the ''test'' stage of: Produce a tiny Python module calc.py with
+          add(a,b) and a smoke test.'
+        maxTurns: 1
+      outputs:
+        output: state.test__tester__output
+    - id: test__gate
+      type: validate
+      with:
+        value: '{{state.test__tester__output}}'
+        minLength: 1
+        criteria: the stage output states a concrete assertion equivalent to add(2, 3) == 5
+    - id: commit__committer
+      type: agent
+      with:
+        prompt: 'Write the file test_calc.py using the write_artifact tool. Its exact contents must be:
+          from calc import add
+
+
+          def test_add(): assert add(2, 3) == 5 Then confirm in one sentence.'
+        system: 'You are ''committer'' in the ''commit'' stage of: Produce a tiny Python module calc.py
+          with add(a,b) and a smoke test.'
+        maxTurns: 1
+      outputs:
+        output: state.commit__committer__output
+    - id: commit__gate
+      type: validate
+      with:
+        value: '{{state.commit__committer__output}}'
+        minLength: 1
+        criteria: the stage output shows a valid Python test file using `from calc import add` and asserting
+          add(2, 3) == 5
+    edges:
+    - from: design__designer
+      to: implement__coder
+    - from: implement__coder
+      to: implement__gate
+    - from: implement__gate
+      to: test__tester
+    - from: test__tester
+      to: test__gate
+    - from: test__gate
+      to: commit__committer
+    - from: commit__committer
+      to: commit__gate

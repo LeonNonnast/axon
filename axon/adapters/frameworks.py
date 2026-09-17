@@ -23,22 +23,41 @@ _JSON_TO_PY = {
 }
 
 
-def _args_model(tool: Tool):
-    """Build a pydantic model for a tool's args from its JSON input_schema, so a
-    LangChain StructuredTool can validate the model's tool-call arguments."""
+def _py_type(spec: dict, name: str):
+    """Map one JSON-schema node to a python/pydantic type, RECURSIVELY: an object
+    with properties becomes a nested pydantic model and an array-of-objects becomes
+    ``list[Model]``. Rich nested types matter for tool-calling reliability — small
+    models emit a nested JSON object far more faithfully than a bare ``list``/``dict``
+    (or a stringified blob)."""
+    spec = spec or {}
+    t = spec.get("type")
+    if t == "object" and spec.get("properties"):
+        return _model_from_schema(spec, name.capitalize() + "_Obj")
+    if t == "array":
+        item = _py_type(spec.get("items", {}), name + "_item")
+        return list[item]  # type: ignore[valid-type]
+    return _JSON_TO_PY.get(t, Any)
+
+
+def _model_from_schema(schema: dict, model_name: str):
     from pydantic import create_model
 
-    schema = tool.input_schema or {}
-    props = schema.get("properties", {})
-    required = set(schema.get("required", []))
+    props = (schema or {}).get("properties", {})
+    required = set((schema or {}).get("required", []))
     fields: dict[str, Any] = {}
     for name, spec in props.items():
-        py = _JSON_TO_PY.get((spec or {}).get("type"), Any)
+        py = _py_type(spec or {}, f"{model_name}_{name}")
         if name in required:
             fields[name] = (py, ...)
         else:
             fields[name] = (Optional[py], None)
-    return create_model(f"{tool.name}_Args", **fields)
+    return create_model(model_name, **fields)
+
+
+def _args_model(tool: Tool):
+    """Build a pydantic model for a tool's args from its JSON input_schema, so a
+    LangChain StructuredTool can validate the model's tool-call arguments."""
+    return _model_from_schema(tool.input_schema or {}, f"{tool.name}_Args")
 
 
 class LangGraphAgent(Agent):

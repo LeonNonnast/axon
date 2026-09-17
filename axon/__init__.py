@@ -15,9 +15,20 @@ from .core import (
     Tool,
     ToolCall,
 )
+from .memory import (
+    LocalMemoryBackend,
+    McpMemoryBackend,
+    MemoryBackend,
+    MemoryPlugin,
+    RouteDecision,
+)
+from .plugin import Plugin, activate_plugins
 
 __all__ = [
     "Agent", "AgentSpec", "Tool", "Skill", "ToolCall", "Message",
     "ProviderResponse", "LLMProvider", "RunResult", "Cell", "Session",
+    "Plugin", "activate_plugins",
+    "MemoryPlugin", "MemoryBackend", "RouteDecision",
+    "LocalMemoryBackend", "McpMemoryBackend",
 ]
 __version__ = "0.0.1"
